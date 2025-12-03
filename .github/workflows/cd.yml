@@ -2,7 +2,7 @@ name: cd
 
 on:
   workflow_run:
-    workflows: ["ci"]   # Must exactly match CI workflow name
+    workflows: ["ci"]   # Must exactly match the CI workflow name
     types:
       - completed       # Trigger after CI completes
 
@@ -11,20 +11,26 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}  # Only deploy if CI passed
     steps:
-      - name: Extract short commit SHA
-        run: |
-          echo "SHORT_SHA=$(echo $GITHUB_EVENT_PATH | xargs jq -r '.workflow_run.head_commit.id' | cut -c1-7)" >> $GITHUB_ENV
-
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v0.1.9
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          env:
+            SHORT_SHA: ${{ github.event.workflow_run.head_commit.id }}
           script: |
+            # Add ubuntu user to docker group (once)
+            sudo usermod -aG docker ubuntu
+
+            # Short SHA for Docker image tag
+            SHORT_SHA=${SHORT_SHA:0:7}
             echo "Deploying commit $SHORT_SHA"
-            docker pull shivaaws69/netflix:$SHORT_SHA
-            docker stop py-app || true
-            docker rm py-app || true
-            docker run -d --name py-app -p 80:80 shivaaws69/netflix:$SHORT_SHA
+
+            # Pull the image and restart container
+            sudo docker pull shivaaws69/netflix:$SHORT_SHA
+            sudo docker stop netflix || true
+            sudo docker rm netflix || true
+            sudo docker run -itd --name netflix -p 80:80 shivaaws69/netflix:$SHORT_SHA
+
 
