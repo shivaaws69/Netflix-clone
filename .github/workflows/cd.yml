@@ -17,20 +17,55 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          env:
-            SHORT_SHA: ${{ github.event.workflow_run.head_commit.id }}
           script: |
-            # Add ubuntu user to docker group (once)
+            # Add ubuntu user to docker group (safe to run every time)
             sudo usermod -aG docker ubuntu
 
-            # Short SHA for Docker image tag
-            SHORT_SHA=${SHORT_SHA:0:7}
+            # Extract short SHA from the workflow run
+            SHORT_SHA="${GITHUB_SHA::7}"
             echo "Deploying commit $SHORT_SHA"
 
-            # Pull the image and restart container
+            # Pull and run Docker container
             sudo docker pull shivaaws69/netflix:$SHORT_SHA
             sudo docker stop netflix || true
             sudo docker rm netflix || true
             sudo docker run -itd --name netflix -p 80:80 shivaaws69/netflix:$SHORT_SHA
+
+
+
+# name: cd
+
+# on:
+#   workflow_run:
+#     workflows: ["ci"]   # Must exactly match the CI workflow name
+#     types:
+#       - completed       # Trigger after CI completes
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     if: ${{ github.event.workflow_run.conclusion == 'success' }}  # Only deploy if CI passed
+#     steps:
+#       - name: Deploy on EC2
+#         uses: appleboy/ssh-action@v0.1.9
+#         with:
+#           host: ${{ secrets.EC2_HOST }}
+#           username: ${{ secrets.EC2_USER }}
+#           key: ${{ secrets.EC2_SSH_KEY }}
+#           env:
+#             SHORT_SHA: ${{ github.event.workflow_run.head_commit.id }}
+#           script: |
+#             # Add ubuntu user to docker group (once)
+#             sudo usermod -aG docker ubuntu
+
+#             # Short SHA for Docker image tag
+#             SHORT_SHA=${SHORT_SHA:0:7}
+#             echo "Deploying commit $SHORT_SHA"
+
+#             # Pull the image and restart container
+#             sudo docker pull shivaaws69/netflix:$SHORT_SHA
+#             sudo docker stop netflix || true
+#             sudo docker rm netflix || true
+#             sudo docker run -itd --name netflix -p 80:80 shivaaws69/netflix:$SHORT_SHA
 
 
