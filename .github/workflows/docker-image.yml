@@ -31,6 +31,6 @@ jobs:
         with:
           push: true
           tags: |
-            shivaaws69/netflix:latest:latest
+            shivaaws69/netflix:latest
             shivaaws69/netflix:${{ env.SHORT_SHA }}
 
