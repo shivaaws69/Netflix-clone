@@ -2,7 +2,7 @@ name: cd
 
 on:
   workflow_run:
-    workflows: ["ci"]   # Name of your CI workflow
+    workflows: ["ci"]   # Must exactly match CI workflow name
     types:
       - completed       # Trigger after CI completes
 
@@ -11,8 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}  # Only deploy if CI passed
     steps:
-      - name: Set Commit SHA
-        run: echo "SHORT_SHA=${{ github.event.workflow_run.head_commit.id::7 }}" >> $GITHUB_ENV
+      - name: Extract short commit SHA
+        run: |
+          echo "SHORT_SHA=$(echo $GITHUB_EVENT_PATH | xargs jq -r '.workflow_run.head_commit.id' | cut -c1-7)" >> $GITHUB_ENV
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v0.1.9
@@ -25,4 +26,5 @@ jobs:
             docker pull shivaaws69/netflix:$SHORT_SHA
             docker stop py-app || true
             docker rm py-app || true
-            docker run -d --name netflix -p 80:80 shivaaws69/netflix:$SHORT_SHA
+            docker run -d --name py-app -p 80:80 shivaaws69/netflix:$SHORT_SHA
+
