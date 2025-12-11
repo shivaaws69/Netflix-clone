@@ -1,0 +1,56 @@
+name: ECR Build and Push (Commit + Latest)
+
+on:
+  push:
+    branches:
+      - main
+      - feature/*
+      - test
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Load environment variables
+        run: |
+          cat .github/ecr.env >> $GITHUB_ENV
+
+      - name: Get short commit SHA
+        id: vars
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::235500187804:role/github-oidc-access
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image with tags
+        run: |
+          docker build \
+            -t ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
+            -t ${{ env.ECR_REPOSITORY }}:latest .
+
+      - name: Tag images for ECR
+        run: |
+          docker tag ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
+          ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
+
+          docker tag ${{ env.ECR_REPOSITORY }}:latest \
+          ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Push images to Amazon ECR
+        run: |
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
