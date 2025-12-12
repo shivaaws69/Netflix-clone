@@ -56,13 +56,16 @@ jobs:
           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
 
   deploy:
-    # needs: build-and-push
-    # runs-on: ubuntu-latest
-    # permissions:
-    #   id-token: write
-    #   contents: read
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
       - name: Load environment variables
         run: |
           cat .github/ecr.env >> $GITHUB_ENV
