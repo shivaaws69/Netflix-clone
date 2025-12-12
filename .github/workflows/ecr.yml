@@ -1,4 +1,4 @@
-name: ECR Build and Push (Commit + Latest)
+name: CI/CD – Build, Push & Deploy to ECS
 
 on:
   push:
@@ -36,13 +36,13 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image with tags
+      - name: Build Docker image
         run: |
           docker build \
             -t ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
             -t ${{ env.ECR_REPOSITORY }}:latest .
 
-      - name: Tag images for ECR
+      - name: Tag Docker image for ECR
         run: |
           docker tag ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
           ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
@@ -50,7 +50,120 @@ jobs:
           docker tag ${{ env.ECR_REPOSITORY }}:latest \
           ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
 
-      - name: Push images to Amazon ECR
+      - name: Push Docker images to ECR
         run: |
           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
-          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest  
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Load environment variables
+        run: |
+          cat .github/ecr.env >> $GITHUB_ENV
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::235500187804:role/github-oidc-access
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK }} \
+            --query taskDefinition > task-def.json
+
+      - name: Create new task definition with updated image
+        run: |
+          IMAGE="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest"
+
+          jq --arg IMAGE "$IMAGE" --arg NAME "${{ env.CONTAINER_NAME }}" \
+            '(.containerDefinitions[] | select(.name == $NAME).image) = $IMAGE' \
+            task-def.json > new-task-def.json
+
+      - name: Register new task definition
+        id: register
+        run: |
+          REV=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+          echo "TASK_REV=$REV" >> $GITHUB_OUTPUT
+
+      - name: Update ECS service with new task definition
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register.outputs.TASK_REV }}
+
+
+
+
+
+
+
+
+
+# name: ECR Build and Push (Commit + Latest)
+
+# on:
+#   push:
+#     branches:
+#       - main
+#       - feature/*
+#       - test
+
+# jobs:
+#   build-and-push:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#       id-token: write
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v3
+
+#       - name: Load environment variables
+#         run: |
+#           cat .github/ecr.env >> $GITHUB_ENV
+
+#       - name: Get short commit SHA
+#         id: vars
+#         run: |
+#           echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+#       - name: Configure AWS Credentials (OIDC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: arn:aws:iam::235500187804:role/github-oidc-access
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       - name: Login to Amazon ECR
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Build Docker image with tags
+#         run: |
+#           docker build \
+#             -t ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
+#             -t ${{ env.ECR_REPOSITORY }}:latest .
+
+#       - name: Tag images for ECR
+#         run: |
+#           docker tag ${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }} \
+#           ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
+
+#           docker tag ${{ env.ECR_REPOSITORY }}:latest \
+#           ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+
+#       - name: Push images to Amazon ECR
+#         run: |
+#           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.SHORT_SHA }}
+#           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest  
